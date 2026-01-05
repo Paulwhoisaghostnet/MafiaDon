@@ -492,96 +492,31 @@ def is_manager_or_mod(interaction: discord.Interaction) -> bool:
             perms.ban_members or 
             perms.manage_roles)
 
-class PlayerSelect(discord.ui.Select):
-    """Dropdown menu for selecting a player to vote for."""
-    
-    def __init__(self, game: GameState, voter: discord.Member, guild: discord.Guild):
-        self.game = game
-        self.voter = voter
+async def vote_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    """Autocomplete for vote command showing active players except self."""
+    try:
+        game = get_game(interaction.guild.id)
+        if not game.game_active:
+             return []
         
-        active_players = game.get_active_players(guild)
+        active_players = game.get_active_players(interaction.guild)
+        voter_id = interaction.user.id
         
-        options = []
+        choices = []
         for player in active_players:
-            if player.id != voter.id:  # Can't vote for yourself
-                options.append(discord.SelectOption(
-                    label=player.display_name,
-                    value=str(player.id),
-                    description=f"Vote for {player.display_name}"
-                ))
-        
-        if not options:
-            options = [discord.SelectOption(label="No players available", value="none")]
-        
-        super().__init__(
-            placeholder="Select a player to vote for...",
-            min_values=1,
-            max_values=1,
-            options=options
-        )
-    
-    async def callback(self, interaction: discord.Interaction):
-        if self.values[0] == "none":
-            await interaction.response.send_message("No valid players to vote for!", ephemeral=True)
-            return
-        
-        target_id = int(self.values[0])
-        target = interaction.guild.get_member(target_id)
-        
-        if not target:
-            await interaction.response.send_message("Player not found!", ephemeral=True)
-            return
-        
-        # Verify target still has the player role
-        if not has_player_role(target):
-            await interaction.response.send_message(
-                f"{target.display_name} no longer has the **{PLAYER_ROLE_NAME}** role!",
-                ephemeral=True
-            )
-            return
-        
-        # Cast the vote
-        self.game.cast_vote(self.voter.id, target.id)
-        tally = format_tally(self.game, interaction.guild)
-        
-        # Check for majority
-        majority_player_id = self.game.check_majority(interaction.guild)
-        
-        if majority_player_id and not self.game.hammer_active:
-            majority_player = interaction.guild.get_member(majority_player_id)
-            self.game.start_hammer(interaction.channel)
-            
-            await interaction.response.send_message(
-                f"🗳️ **{self.voter.display_name}** voted for **{target.display_name}**\n\n"
-                f"{tally}\n\n"
-                f"⚠️ **MAJORITY REACHED!** {majority_player.display_name if majority_player else 'Unknown'} "
-                f"has been hammered!\n"
-                f"🔨 **24-hour countdown started!** Final tally in {format_time_remaining(self.game.get_time_remaining())}.\n"
-                f"*Updates will be posted every 4 hours.*"
-            )
-        else:
-            hammer_info = ""
-            if self.game.hammer_active:
-                remaining = self.game.get_time_remaining()
-                hammer_info = f"\n\n🔨 *Hammer active! Time remaining: {format_time_remaining(remaining)}*"
-            
-            await interaction.response.send_message(
-                f"🗳️ **{self.voter.display_name}** voted for **{target.display_name}**\n\n"
-                f"{tally}{hammer_info}"
-            )
-
-
-class VoteView(discord.ui.View):
-    """View containing the player selection dropdown."""
-    
-    def __init__(self, game: GameState, voter: discord.Member, guild: discord.Guild):
-        super().__init__(timeout=60)
-        self.add_item(PlayerSelect(game, voter, guild))
-
+            # Filter out self and check if matches search
+            if player.id != voter_id and current.lower() in player.display_name.lower():
+                choices.append(app_commands.Choice(name=player.display_name, value=str(player.id)))
+        return choices[:25]
+    except Exception as e:
+        print(f"Vote Autocomplete error: {e}")
+        return []
 
 @bot.tree.command(name="vote", description="Vote for a player in the Mafia game")
-async def vote(interaction: discord.Interaction):
-    """Open a dropdown to vote for a player."""
+@app_commands.describe(player_id="Select a player to vote for")
+@app_commands.autocomplete(player_id=vote_autocomplete)
+async def vote(interaction: discord.Interaction, player_id: str):
+    """Cast a vote for a player."""
     # Check if in allowed category
     if not is_in_allowed_category(interaction.channel):
         await interaction.response.send_message(
@@ -616,13 +551,68 @@ async def vote(interaction: discord.Interaction):
             ephemeral=True
         )
         return
+
+    try:
+        target_id = int(player_id)
+        target = interaction.guild.get_member(target_id)
+    except ValueError:
+        await interaction.response.send_message("❌ Invalid player selection!", ephemeral=True)
+        return
+
+    if not target:
+        await interaction.response.send_message("❌ Player not found!", ephemeral=True)
+        return
+
+    # Verify target still has the player role
+    if not has_player_role(target):
+        await interaction.response.send_message(
+            f"❌ {target.display_name} no longer has the **{PLAYER_ROLE_NAME}** role!",
+            ephemeral=True
+        )
+        return
+        
+    # Check if target is eliminated (double check)
+    if target.id in game.eliminated_players:
+         await interaction.response.send_message(
+            f"❌ {target.display_name} is already eliminated!",
+            ephemeral=True
+        )
+         return
+
+    # Cant vote for self
+    if target.id == voter.id:
+        await interaction.response.send_message("❌ You cannot vote for yourself!", ephemeral=True)
+        return
+
+    # Cast the vote
+    game.cast_vote(voter.id, target.id)
+    tally = format_tally(game, interaction.guild)
     
-    view = VoteView(game, voter, interaction.guild)
-    await interaction.response.send_message(
-        "Select a player to vote for:",
-        view=view,
-        ephemeral=True
-    )
+    # Check for majority
+    majority_player_id = game.check_majority(interaction.guild)
+    
+    if majority_player_id and not game.hammer_active:
+        majority_player = interaction.guild.get_member(majority_player_id)
+        game.start_hammer(interaction.channel)
+        
+        await interaction.response.send_message(
+            f"🗳️ **{voter.display_name}** voted for **{target.display_name}**\n\n"
+            f"{tally}\n\n"
+            f"⚠️ **MAJORITY REACHED!** {majority_player.display_name if majority_player else 'Unknown'} "
+            f"has been hammered!\n"
+            f"🔨 **24-hour countdown started!** Final tally in {format_time_remaining(game.get_time_remaining())}.\n"
+            f"*Updates will be posted every 4 hours.*"
+        )
+    else:
+        hammer_info = ""
+        if game.hammer_active:
+            remaining = game.get_time_remaining()
+            hammer_info = f"\n\n🔨 *Hammer active! Time remaining: {format_time_remaining(remaining)}*"
+        
+        await interaction.response.send_message(
+            f"🗳️ **{voter.display_name}** voted for **{target.display_name}**\n\n"
+            f"{tally}{hammer_info}"
+        )
 
 
 @bot.tree.command(name="unvote", description="Remove your current vote")
