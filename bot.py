@@ -672,13 +672,21 @@ async def unvote(interaction: discord.Interaction):
         )
 
 
-@bot.tree.command(name="hammer", description="Manually trigger the 24-hour hammer countdown")
+@bot.tree.command(name="hammer", description="Manually trigger the 24-hour hammer countdown (Managers/Mods only)")
 async def hammer(interaction: discord.Interaction):
     """Manually start the hammer countdown."""
     # Check if in allowed category
     if not is_in_allowed_category(interaction.channel):
         await interaction.response.send_message(
             "❌ This command can only be used in the Mafia game channels!",
+            ephemeral=True
+        )
+        return
+
+    # Check permissions
+    if not is_manager_or_mod(interaction):
+        await interaction.response.send_message(
+            "❌ You do not have permission to use this command! (Managers/Mods only)",
             ephemeral=True
         )
         return
@@ -877,9 +885,29 @@ async def startgame(interaction: discord.Interaction):
     )
 
 
+async def eliminate_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    """Autocomplete for eliminate command showing only active players."""
+    try:
+        game = get_game(interaction.guild.id)
+        # Get all relevant players (role members)
+        # We can also filter out already eliminated ones if we want to be strict,
+        # but showing them might be useful? The user said "one user with the role is not shown".
+        # Let's show all active players (not eliminated).
+        active_players = game.get_active_players(interaction.guild)
+        
+        choices = []
+        for player in active_players:
+            if current.lower() in player.display_name.lower():
+                choices.append(app_commands.Choice(name=player.display_name, value=str(player.id)))
+        return choices[:25]
+    except Exception as e:
+        print(f"Autocomplete error: {e}")
+        return []
+
 @bot.tree.command(name="eliminate", description="Mark a player as eliminated (Managers/Mods only)")
-@app_commands.describe(player="The player to eliminate")
-async def eliminate(interaction: discord.Interaction, player: discord.Member):
+@app_commands.describe(player_id="Select a player to eliminate")
+@app_commands.autocomplete(player_id=eliminate_autocomplete)
+async def eliminate(interaction: discord.Interaction, player_id: str):
     """Mark a player as eliminated from the game."""
     # Check if in allowed category
     if not is_in_allowed_category(interaction.channel):
@@ -895,6 +923,17 @@ async def eliminate(interaction: discord.Interaction, player: discord.Member):
             "❌ You do not have permission to use this command! (Managers/Mods only)",
             ephemeral=True
         )
+        return
+    
+    try:
+        target_id = int(player_id)
+        player = interaction.guild.get_member(target_id)
+    except ValueError:
+        await interaction.response.send_message("❌ Invalid player selection!", ephemeral=True)
+        return
+
+    if not player:
+        await interaction.response.send_message("❌ Player not found in the server!", ephemeral=True)
         return
     
     game = get_game(interaction.guild.id)
