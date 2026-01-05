@@ -812,7 +812,7 @@ async def status(interaction: discord.Interaction):
         f"*Use `/startgame` to begin a new game.*"
     )
 
-@bot.tree.command(name="startgame", description="Start a new Mafia game with players who have the player role")
+@bot.tree.command(name="startgame", description="Start a new Mafia game (Managers/Mods only)")
 async def startgame(interaction: discord.Interaction):
     # ... (Checks)
     # Check if in allowed category
@@ -877,7 +877,7 @@ async def startgame(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name="eliminate", description="Mark a player as eliminated (moderator only)")
+@bot.tree.command(name="eliminate", description="Mark a player as eliminated (Managers/Mods only)")
 @app_commands.describe(player="The player to eliminate")
 async def eliminate(interaction: discord.Interaction, player: discord.Member):
     """Mark a player as eliminated from the game."""
@@ -922,7 +922,7 @@ async def eliminate(interaction: discord.Interaction, player: discord.Member):
         f"*New majority threshold: {game.get_majority_threshold(interaction.guild)} votes*"
     )
 
-@bot.tree.command(name="setrole", description="Set the player role name (default: 'i play mafia')")
+@bot.tree.command(name="setrole", description="Set the player role name (Managers/Mods only)")
 @app_commands.describe(role_name="The name of the role that identifies mafia players")
 async def setrole(interaction: discord.Interaction, role_name: str):
     """Change the player role name."""
@@ -957,7 +957,7 @@ async def setrole(interaction: discord.Interaction, role_name: str):
             f"Found {len(players)} players with this role."
         )
 
-@bot.tree.command(name="resetgame", description="Reset the current game (clears all votes and eliminations)")
+@bot.tree.command(name="resetgame", description="Reset the current game (Managers/Mods only)")
 async def resetgame(interaction: discord.Interaction):
     # ... (Checks)
     # Check if in allowed category
@@ -985,9 +985,24 @@ async def resetgame(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name="resetvotes", description="Reset all votes but keep game state")
+@bot.tree.command(name="resetvotes", description="Reset all votes but keep game state (Managers/Mods only)")
 async def resetvotes(interaction: discord.Interaction):
-    # ... (Checks)
+    """Reset votes but keep eliminations."""
+    # Check if in allowed category
+    if not is_in_allowed_category(interaction.channel):
+        await interaction.response.send_message(
+            "❌ This command can only be used in the Mafia game channels!",
+            ephemeral=True
+        )
+        return
+
+    # Check permissions
+    if not is_manager_or_mod(interaction):
+        await interaction.response.send_message(
+            "❌ You do not have permission to use this command! (Managers/Mods only)",
+            ephemeral=True
+        )
+        return
     
     game = get_game(interaction.guild.id)
     game.votes.clear()
