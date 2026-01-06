@@ -489,13 +489,13 @@ def is_manager_or_mod(interaction: discord.Interaction) -> bool:
     # Check for direct administrator permission
     if interaction.user.guild_permissions.administrator:
         return True
-        
+    return False    
     # Check for other mod-like permissions
-    perms = interaction.user.guild_permissions
-    return (perms.manage_guild or 
-            perms.kick_members or 
-            perms.ban_members or 
-            perms.manage_roles)
+    # perms = interaction.user.guild_permissions
+    # return (perms.manage_guild or 
+    #         perms.kick_members or 
+    #         perms.ban_members or 
+    #         perms.manage_roles)
 
 async def vote_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     """Autocomplete for vote command showing active players except self."""
