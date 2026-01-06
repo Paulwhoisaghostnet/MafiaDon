@@ -19,6 +19,11 @@ PLAYER_ROLE_NAME = os.getenv('PLAYER_ROLE_NAME', 'i play mafia')
 # Optional: Limit bot to specific category (set in .env or leave empty for all categories)
 ALLOWED_CATEGORY_ID = os.getenv('ALLOWED_CATEGORY_ID')
 
+# Hammer Duration Configuration
+# Default is 24 hours. Change to seconds=60 for testing.
+HAMMER_DURATION = timedelta(hours=24) 
+# HAMMER_DURATION = timedelta(seconds=60) # TESTING MODE
+
 # Bot setup with required intents
 intents = discord.Intents.default()
 intents.members = True
@@ -385,9 +390,9 @@ class GameState:
         return None
 
     def start_hammer(self, channel: discord.TextChannel):
-        """Start the 24-hour hammer countdown."""
+        """Start the hammer countdown."""
         self.hammer_active = True
-        self.hammer_end_time = datetime.now() + timedelta(hours=24)
+        self.hammer_end_time = datetime.now() + HAMMER_DURATION
         self.game_channel = channel
         self.last_update_time = datetime.now()
         if self.guild_id:
